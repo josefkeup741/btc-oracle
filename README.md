@@ -1,150 +1,77 @@
 # BTC Oracle
 
-Multi-signal Bitcoin price prediction system using XGBoost.
+Multi-signal Bitcoin price prediction system using XGBoost. Combines options market data, sentiment indicators, on-chain whale activity, prediction market signals, and technical indicators to forecast 7-day BTC price direction and magnitude.
+
+## How It Works
+
+Every 4 hours, collectors pull data from 7 free sources and store it in a local SQLite database. A feature engineering pipeline builds 25 model features from the raw data. XGBoost models (classifier + regressor) are trained with walk-forward validation to predict whether BTC will be higher or lower in 7 days, and by how much.
+
+### Data Sources (all free, no paid APIs)
+
+| Source | What It Provides | API |
+|--------|-----------------|-----|
+| Deribit | BTC options OI, put/call ratio, weighted breakevens, consensus price, near/far-term skew, max pain | Deribit public API |
+| IBIT (BlackRock ETF) | ETF options flow, put/call ratio, institutional consensus | yfinance |
+| Fear & Greed Index | Retail sentiment (0-100) | alternative.me |
+| Whale Activity | Large BTC transactions, exchange wallet balance tracking | Blockchain.com + Blockchair |
+| Polymarket | Prediction market probabilities for BTC price targets | Polymarket CLOB API |
+| BTC Price | OHLCV candles | CoinGecko |
+| Technical Indicators | RSI, EMA ratio, ATR, MACD histogram, Bollinger %B, OBV slope | Computed from price data |
+
+### Features (25 total)
+
+| Category | Features |
+|----------|----------|
+| Sentiment (3) | FnG value, 7-day average, 24h delta |
+| Deribit Options (5) | Put/call ratio, consensus bias, near-term skew, far-term skew, skew divergence |
+| IBIT Options (2) | Consensus bias, Deribit-IBIT divergence |
+| Whale Activity (3) | Net exchange flow, whale volume, 7-day flow trend |
+| Prediction Markets (2) | Primary probability, probability delta |
+| Technicals (6) | EMA ratio, RSI, ATR, OBV slope, Bollinger %B, MACD histogram |
+| Price-derived (3) | 24h returns, 7-day returns, 7-day volatility |
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Install
 
 ```bash
-cd btc_oracle
+git clone https://github.com/josefkeup741/btc-oracle.git
+cd btc-oracle
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Import your historical data
+### 2. Import historical data and train
 
 ```bash
-# Import the Kaggle CSV (btc_with_fgi_4h.csv)
-python run_train.py --import-csv /path/to/btc_with_fgi_4h.csv --no-train
+# If you have a historical BTC + Fear & Greed CSV:
+python run_train.py --import-csv btc_with_fgi_4h.csv
 
-# Or backfill from free APIs (less historical depth but automated)
-python run_train.py --backfill --no-train
+# Or backfill from free APIs:
+python run_train.py --backfill
 
-# Check what's in the database
+# Or just check database status:
 python run_train.py --status
 ```
 
-### 3. Train initial model
+### 3. Collect live data
 
 ```bash
-python run_train.py
-```
-
-This will:
-- Compute technical indicators from stored price data
-- Build all 25 features
-- Run walk-forward validation
-- Train direction (classifier) and magnitude (regressor) models
-- Print accuracy metrics and feature importance
-
-### 4. Start collecting live data
-
-```bash
-# Single collection run (test it works)
+# Single collection run:
 python run_collect.py
 
-# Set up cron for every 4 hours (see Server Setup below)
-```
-
-### 5. Generate predictions
-
-```bash
-python run_predict.py          # Pretty-printed output
-python run_predict.py --json   # JSON output for integrations
-```
-
----
-
-## Server Setup (Oracle Cloud Free Tier)
-
-Your collectors need to run 24/7. Here's how to set that up for $0.
-
-### Step 1: Create an Oracle Cloud account
-
-Go to https://cloud.oracle.com and sign up. The "Always Free" tier includes:
-- 1 ARM-based VM (4 cores, 24GB RAM) — way more than you need
-- 200GB block storage
-- No expiration (unlike AWS/GCP free tiers)
-
-### Step 2: Launch an instance
-
-- Shape: `VM.Standard.A1.Flex` (ARM) — 1 OCPU, 6GB RAM is plenty
-- Image: Ubuntu 22.04 or 24.04
-- Add your SSH public key
-
-### Step 3: Set up the environment
-
-```bash
-# SSH into your instance
-ssh ubuntu@<your-instance-ip>
-
-# Install Python and pip
-sudo apt update && sudo apt install -y python3 python3-pip python3-venv git
-
-# Clone your repo (or scp the files)
-git clone <your-repo-url> btc_oracle
-cd btc_oracle
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Step 4: Set up environment variables
-
-```bash
-# Add to ~/.bashrc or create .env file
-export WHALE_ALERT_API_KEY="your_key_here"
-```
-
-### Step 5: Import historical data and train
-
-```bash
-# Upload your CSV
-scp btc_with_fgi_4h.csv ubuntu@<ip>:~/btc_oracle/
-
-# Import and train
-cd ~/btc_oracle
-source venv/bin/activate
-python run_train.py --import-csv btc_with_fgi_4h.csv
-```
-
-### Step 6: Set up cron jobs
-
-```bash
+# Set up cron for every 4 hours:
 crontab -e
+# Add: 0 */4 * * * cd /path/to/btc-oracle && /path/to/venv/bin/python run_collect.py >> logs/collect.log 2>&1
 ```
 
-Add these lines:
-
-```cron
-# Collect data every 4 hours
-0 */4 * * * cd /home/ubuntu/btc_oracle && /home/ubuntu/btc_oracle/venv/bin/python run_collect.py >> /home/ubuntu/btc_oracle/logs/collect.log 2>&1
-
-# Retrain model every Sunday at 3am UTC
-0 3 * * 0 cd /home/ubuntu/btc_oracle && /home/ubuntu/btc_oracle/venv/bin/python run_train.py >> /home/ubuntu/btc_oracle/logs/train.log 2>&1
-
-# Generate prediction daily at 8am UTC (optional, for logging)
-0 8 * * * cd /home/ubuntu/btc_oracle && /home/ubuntu/btc_oracle/venv/bin/python run_predict.py --json >> /home/ubuntu/btc_oracle/logs/predictions.log 2>&1
-```
-
-### Step 7: Verify it's running
+### 4. Generate predictions
 
 ```bash
-# Check cron is active
-crontab -l
-
-# Watch the next collection run
-tail -f logs/collect.log
-
-# Check database status anytime
-source venv/bin/activate && python run_train.py --status
+python run_predict.py          # Pretty-printed
+python run_predict.py --json   # JSON output
 ```
-
----
 
 ## Project Structure
 
@@ -154,42 +81,77 @@ btc_oracle/
 ├── data/
 │   ├── collectors/
 │   │   ├── base.py            # Abstract collector class
-│   │   ├── deribit.py         # Deribit BTC options
-│   │   ├── ibit.py            # IBIT ETF options
-│   │   ├── fear_greed.py      # Fear & Greed Index
-│   │   ├── whale.py           # On-chain whale transactions
+│   │   ├── deribit.py         # Deribit BTC options (24/7)
+│   │   ├── ibit.py            # IBIT ETF options (market hours)
+│   │   ├── fear_greed.py      # Fear & Greed Index (daily)
+│   │   ├── whale.py           # On-chain whale tracking (free APIs)
 │   │   ├── polymarket.py      # Prediction market probabilities
-│   │   ├── price.py           # BTC spot price (CoinGecko)
-│   │   └── technicals.py      # RSI, MACD, EMA, ATR, BB
+│   │   ├── price.py           # BTC spot price via CoinGecko
+│   │   └── technicals.py      # RSI, MACD, EMA, ATR, BB, OBV
 │   ├── store.py               # SQLite time-series storage
 │   └── features.py            # Feature engineering (25 features)
 ├── model/
 │   ├── targets.py             # Label generation (direction + magnitude)
 │   ├── train.py               # XGBoost walk-forward training
 │   └── predict.py             # Live inference
-├── run_collect.py             # Cron: collect data every 4h
+├── run_collect.py             # Cron entry point: collect all data
 ├── run_train.py               # Import data + train models
 ├── run_predict.py             # Generate predictions
-├── requirements.txt
-└── README.md
+└── requirements.txt
 ```
 
-## Features (25 total)
+## Model Architecture
 
-| # | Feature | Source |
-|---|---------|--------|
-| 1-3 | FnG value, 7d avg, 24h delta | Fear & Greed API |
-| 4-8 | PCR, consensus bias, near/far skew, skew divergence | Deribit Options |
-| 9-10 | IBIT consensus bias, options divergence | IBIT Options |
-| 11-13 | Net exchange flow, whale volume, 7d flow trend | Whale Alert |
-| 14-15 | Prediction market prob, prob delta | Polymarket |
-| 16-21 | EMA ratio, RSI, ATR, OBV slope, BB %B, MACD hist | Technicals |
-| 22-25 | 24h returns, 7d returns, 7d volatility | Price-derived |
+Two XGBoost models trained on the same feature set:
 
-## API Keys Needed
+- **Direction Model** (XGBClassifier): Predicts probability of BTC being higher in 7 days
+- **Magnitude Model** (XGBRegressor): Predicts expected % change over 7 days
 
-| Service | Cost | Sign up |
-|---------|------|---------|
-| Whale Alert | Free (10 req/min) | https://whale-alert.io |
+Training uses **walk-forward validation** (expanding window, 1-month test folds) to avoid look-ahead bias. The model only ever sees past data when making predictions.
 
-All other APIs (Deribit, CoinGecko, Fear & Greed, Polymarket, yfinance) are free with no key required.
+### Baseline Results (FnG + technicals only, no options/whale data yet)
+
+```
+Samples: 12,855  |  Features: 24
+Walk-forward folds: 65
+
+DIRECTION MODEL (7-day):
+  Accuracy:  51.6%  (baseline: 53.4%)
+
+TOP FEATURES:
+  1. fng_7d_avg          (0.129)
+  2. volatility_7d       (0.109)
+  3. ema_ratio           (0.104)
+  4. atr_14              (0.102)
+  5. returns_7d          (0.100)
+```
+
+The baseline model with only backward-looking indicators performs at random — which is expected and validates the thesis that forward-looking signals (options flow, whale activity, prediction markets) are needed. Accuracy should improve as those signals accumulate.
+
+## Deployment
+
+Designed to run on a free/cheap cloud VM. Currently deployed on Azure for Students (B2ats_v2, free tier).
+
+### Cron Schedule
+
+```
+# Collect data every 4 hours
+0 */4 * * * cd ~/btc_oracle && ~/btc_oracle/venv/bin/python run_collect.py >> logs/collect.log 2>&1
+
+# Retrain weekly (optional)
+0 3 * * 0 cd ~/btc_oracle && ~/btc_oracle/venv/bin/python run_train.py >> logs/train.log 2>&1
+```
+
+## Roadmap
+
+- [ ] Accumulate 4+ weeks of Deribit options data and retrain
+- [ ] Add 24h and 72h prediction horizons
+- [ ] Hyperparameter tuning with Optuna
+- [ ] Improve whale collector (add more exchange addresses, handle rate limits)
+- [ ] Improve Polymarket collector (BTC markets may not always be active)
+- [ ] Dashboard for visualizing predictions vs. actuals
+- [ ] Paper trading log to track live accuracy
+
+## License
+
+MIT
