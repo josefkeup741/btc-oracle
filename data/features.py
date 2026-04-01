@@ -36,13 +36,26 @@ def build_features(store: Store, start: str = None, end: str = None) -> pd.DataF
         df["fng_7d_avg"] = np.nan
         df["fng_delta_24h"] = np.nan
 
-    # Options divergence (Deribit vs IBIT)
-    deribit_bias = df.get("consensus_bias_pct")
-    ibit_bias = df.get("consensus_bias_pct_ibit_options")
-    if deribit_bias is not None and ibit_bias is not None:
-        df["options_divergence"] = deribit_bias - ibit_bias
+    # Consensus bias spread (short-term vs long-term sentiment divergence)
+    if "consensus_bias_7d" in df.columns and "consensus_bias_90d" in df.columns:
+        df["consensus_spread_7d_90d"] = df["consensus_bias_7d"] - df["consensus_bias_90d"]
     else:
-        df["options_divergence"] = np.nan
+        df["consensus_spread_7d_90d"] = np.nan
+
+    # Options divergence (Deribit vs IBIT)
+    # Use 30d bucket for divergence since IBIT 7d bucket is often empty
+    deribit_30d = df.get("consensus_bias_30d")
+    ibit_30d = df.get("consensus_bias_30d_ibit_options")
+    if deribit_30d is not None and ibit_30d is not None:
+        df["options_divergence"] = deribit_30d - ibit_30d
+    else:
+        # Fall back to aggregate bias
+        deribit_bias = df.get("consensus_bias_pct")
+        ibit_bias = df.get("consensus_bias_pct_ibit_options")
+        if deribit_bias is not None and ibit_bias is not None:
+            df["options_divergence"] = deribit_bias - ibit_bias
+        else:
+            df["options_divergence"] = np.nan
 
     # Deribit skew divergence
     if "near_term_skew" in df.columns and "far_term_skew" in df.columns:
@@ -83,15 +96,22 @@ def build_features(store: Store, start: str = None, end: str = None) -> pd.DataF
         "fng_value",
         "fng_7d_avg",
         "fng_delta_24h",
-        # Deribit Options (5)
+        # Deribit Options (8)
         "put_call_ratio",       # from deribit_options table
-        "consensus_bias_pct",   # from deribit_options table
+        "consensus_bias_pct",   # all expirations
+        "consensus_bias_7d",    # options expiring within 7 days
+        "consensus_bias_30d",   # options expiring within 30 days
+        "consensus_bias_90d",   # options expiring within 90 days
+        "consensus_spread_7d_90d",  # short vs long term divergence
         "near_term_skew",
         "far_term_skew",
         "deribit_skew_divergence",
-        # IBIT Options (2)
+        # IBIT Options (5)
         # These get suffixed by join_all if column names collide
         "consensus_bias_pct_ibit_options" if "consensus_bias_pct_ibit_options" in df.columns else "consensus_bias_pct",
+        "consensus_bias_7d_ibit_options" if "consensus_bias_7d_ibit_options" in df.columns else "consensus_bias_7d",
+        "consensus_bias_30d_ibit_options" if "consensus_bias_30d_ibit_options" in df.columns else "consensus_bias_30d",
+        "near_term_skew_ibit_options" if "near_term_skew_ibit_options" in df.columns else "near_term_skew",
         "options_divergence",
         # Whale Activity (3)
         "net_exchange_flow",

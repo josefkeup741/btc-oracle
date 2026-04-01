@@ -3,7 +3,8 @@ Deribit Options Collector
 =========================
 Refactored from btcSmartDumbDeribit.ipynb.
 Fetches all BTC options from Deribit public API, computes OI-weighted
-breakevens, put/call ratios, near/far-term skew, and max pain.
+breakevens, put/call ratios, near/far-term skew, max pain, and
+TIME-BUCKETED consensus bias (7d, 30d, 90d, all).
 """
 import requests
 import pandas as pd
@@ -91,17 +92,22 @@ class DeribitCollector(BaseCollector):
 
         pcr = total_put_oi / total_call_oi
 
-        # OI-weighted breakevens
+        # OI-weighted breakevens (all expirations)
         w_call_be = (calls["breakeven"] * calls["oi"]).sum() / total_call_oi
         w_put_be = (puts["breakeven"] * puts["oi"]).sum() / total_put_oi if total_put_oi > 0 else 0
 
         total_oi = total_call_oi + total_put_oi
-        consensus = (
+        consensus_all = (
             (calls["breakeven"] * calls["oi"]).sum()
             + (puts["breakeven"] * puts["oi"]).sum()
         ) / total_oi
 
-        consensus_bias = ((consensus - btc_price) / btc_price) * 100
+        consensus_bias_all = ((consensus_all - btc_price) / btc_price) * 100
+
+        # === TIME-BUCKETED CONSENSUS BIAS ===
+        consensus_bias_7d = self._consensus_for_window(df, btc_price, max_days=7)
+        consensus_bias_30d = self._consensus_for_window(df, btc_price, max_days=30)
+        consensus_bias_90d = self._consensus_for_window(df, btc_price, max_days=90)
 
         # Near-term skew (< 30 days)
         near = df[df["days_to_exp"] <= DERIBIT_NEAR_TERM_DAYS]
@@ -115,7 +121,7 @@ class DeribitCollector(BaseCollector):
         far_puts_oi = far[far["type"] == "P"]["oi"].sum()
         far_skew = far_puts_oi / far_calls_oi if far_calls_oi > 0 else None
 
-        # Max pain for nearest monthly expiry (most OI)
+        # Max pain for nearest monthly expiry
         max_pain = self._calc_max_pain(df, btc_price)
 
         return {
@@ -125,20 +131,38 @@ class DeribitCollector(BaseCollector):
             "put_call_ratio": pcr,
             "weighted_call_breakeven": w_call_be,
             "weighted_put_breakeven": w_put_be,
-            "consensus_price": consensus,
-            "consensus_bias_pct": consensus_bias,
+            "consensus_price": consensus_all,
+            "consensus_bias_pct": consensus_bias_all,
+            "consensus_bias_7d": consensus_bias_7d,
+            "consensus_bias_30d": consensus_bias_30d,
+            "consensus_bias_90d": consensus_bias_90d,
             "near_term_skew": near_skew,
             "far_term_skew": far_skew,
             "max_pain_30d": max_pain,
         }
 
+    def _consensus_for_window(self, df: pd.DataFrame, spot: float, max_days: int) -> float | None:
+        """
+        Compute OI-weighted consensus bias for options expiring within max_days.
+        Returns percentage bias vs spot, or None if insufficient data.
+        """
+        window = df[df["days_to_exp"] <= max_days]
+        if window.empty:
+            return None
+
+        total_oi = window["oi"].sum()
+        if total_oi < DERIBIT_MIN_OI:
+            return None
+
+        weighted_sum = (window["breakeven"] * window["oi"]).sum()
+        consensus = weighted_sum / total_oi
+        return ((consensus - spot) / spot) * 100
+
     def _calc_max_pain(self, df: pd.DataFrame, spot: float) -> float | None:
         """
-        Max pain: the strike price where total option holder losses are maximized
-        (i.e., where most options expire worthless). Computed for the nearest
-        high-OI expiration.
+        Max pain: the strike price where total option holder losses are maximized.
+        Computed for the nearest high-OI expiration.
         """
-        # Find the nearest expiration with meaningful OI
         exp_oi = df.groupby("expiration")["oi"].sum()
         exp_oi = exp_oi[exp_oi >= DERIBIT_MIN_OI].sort_index()
 
@@ -159,11 +183,6 @@ class DeribitCollector(BaseCollector):
             total_pain = 0
             for _, row in subset.iterrows():
                 if row["type"] == "C":
-                    # Call holder loss if price settles at test_strike
-                    intrinsic = max(0, test_strike - row["strike"])
-                    # They paid the breakeven - strike, so loss = premium - intrinsic
-                    # Simplified: pain to call holder = max(0, row['strike'] - test_strike) * oi
-                    # Actually, max pain = sum of ITM value * OI for all options
                     pain = max(0, test_strike - row["strike"]) * row["oi"]
                 else:
                     pain = max(0, row["strike"] - test_strike) * row["oi"]
