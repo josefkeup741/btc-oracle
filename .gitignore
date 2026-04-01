@@ -1,0 +1,30 @@
+# Database (contains your local data, don't share)
+*.db
+
+# Models (trained on your data, regenerate with run_train.py)
+models/
+!models/.gitkeep
+
+# Logs
+logs/
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Environment secrets
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data files (too large for git, import via run_train.py)
+*.csv
