@@ -77,6 +77,18 @@ class Store:
             "market_volume_24h": "REAL",
             "prob_delta_24h": "REAL",
         },
+        "macro": {
+            "dxy": "REAL",
+            "dxy_7d_return": "REAL",
+            "us10y_yield": "REAL",
+            "sp500_7d_return": "REAL",
+            "qqq_7d_return": "REAL",
+            "oil_price": "REAL",
+            "oil_7d_return": "REAL",
+            "btc_gold_ratio": "REAL",
+            "m2_supply": "REAL",
+            "m2_yoy_growth": "REAL",
+        },
         "technicals": {
             "ema_ratio": "REAL",
             "rsi_14": "REAL",

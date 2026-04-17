@@ -21,6 +21,7 @@ from data.collectors.price import PriceCollector
 from data.collectors.whale import WhaleCollector
 from data.collectors.polymarket import PolymarketCollector
 from data.collectors.technicals import TechnicalsCollector
+from data.collectors.macro import MacroCollector
 
 # Set up logging
 log_file = LOG_DIR / f"collect_{datetime.now().strftime('%Y%m%d')}.log"
@@ -50,6 +51,7 @@ def main():
         FearGreedCollector(),
         WhaleCollector(),
         PolymarketCollector(),
+        MacroCollector(),
         IBITCollector(),
     ]
 

@@ -127,6 +127,17 @@ def build_features(store: Store, start: str = None, end: str = None) -> pd.DataF
         "obv_slope",
         "bb_pct_b",
         "macd_hist",
+        # Macro (6)
+        "dxy",
+        "dxy_7d_return",
+        "us10y_yield",
+        "sp500_7d_return",
+        "qqq_7d_return",
+        "oil_price",
+        "oil_7d_return",
+        "btc_gold_ratio",
+        "m2_supply",
+        "m2_yoy_growth",
         # Price-derived (3)
         "returns_24h",
         "returns_7d",

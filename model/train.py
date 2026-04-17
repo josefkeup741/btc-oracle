@@ -62,6 +62,24 @@ def train(store: Store, save: bool = True) -> dict:
     target_cols = ["direction_7d", "magnitude_7d", "future_close"]
     feature_cols = [c for c in merged.columns if c not in target_cols + ["timestamp"]]
 
+    # Deduplicate column names first
+    if merged.columns.duplicated().any():
+        cols = []
+        seen = {}
+        for c in merged.columns:
+            if c in seen:
+                seen[c] += 1
+                cols.append(f"{c}_{seen[c]}")
+            else:
+                seen[c] = 0
+                cols.append(c)
+        merged.columns = cols
+        feature_cols = [c for c in merged.columns if c not in target_cols + ["timestamp"]]
+
+    # Force all feature columns to float64
+    for col in feature_cols:
+        merged[col] = pd.to_numeric(merged[col], errors="coerce").astype("float64")
+
     X = merged[feature_cols]
     y_dir = merged["direction_7d"]
     y_mag = merged["magnitude_7d"]
