@@ -63,6 +63,13 @@ def build_features(store: Store, start: str = None, end: str = None) -> pd.DataF
     else:
         df["deribit_skew_divergence"] = np.nan
 
+    # Whale net-flow delta: the cumulative exchange balance barely moves,
+    # so its period-over-period change is the actual flow signal.
+    if "net_exchange_flow" in df.columns:
+        df["net_flow_delta"] = df["net_exchange_flow"].diff()
+    else:
+        df["net_flow_delta"] = np.nan
+
     # Whale flow trend (7-day slope of net exchange flow)
     if "net_exchange_flow" in df.columns:
         df["whale_flow_7d_trend"] = df["net_exchange_flow"].rolling(42, min_periods=6).apply(
@@ -114,7 +121,7 @@ def build_features(store: Store, start: str = None, end: str = None) -> pd.DataF
         "near_term_skew_ibit_options" if "near_term_skew_ibit_options" in df.columns else "near_term_skew",
         "options_divergence",
         # Whale Activity (3)
-        "net_exchange_flow",
+        "net_flow_delta",
         "large_tx_volume_btc",
         "whale_flow_7d_trend",
         # Polymarket (2)

@@ -57,12 +57,28 @@ def predict(store: Store) -> dict | None:
     latest = features.iloc[[-1]]
     feature_cols = meta.get("feature_names", [])
 
-    # Ensure we have the right columns
-    missing = [c for c in feature_cols if c not in latest.columns]
-    for c in missing:
-        latest[c] = np.nan
+    # build_features can return duplicate column names (IBIT/Deribit
+    # collisions from the asof join); dedup to match the training layout.
+    latest = latest.copy()
+    if latest.columns.duplicated().any():
+        cols, seen = [], {}
+        for c in latest.columns:
+            if c in seen:
+                seen[c] += 1
+                cols.append(f"{c}_{seen[c]}")
+            else:
+                seen[c] = 0
+                cols.append(c)
+        latest.columns = cols
 
-    X = latest[feature_cols]
+    # Add any expected columns the live row is missing, as NaN.
+    for c in feature_cols:
+        if c not in latest.columns:
+            latest[c] = np.nan
+
+    X = latest[feature_cols].copy()
+    for c in X.columns:
+        X[c] = pd.to_numeric(X[c], errors="coerce").astype("float64")
 
     # Predict
     dir_prob = clf.predict_proba(X)[0, 1]  # Probability of "UP"
